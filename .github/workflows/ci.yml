@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v4.3.0
+  KUBECONFORM_VERSION: v0.8.0
+  CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+
+jobs:
+  validate:
+    name: Lint & validate manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: Helm lint (default, dev, prod)
+        run: |
+          helm lint charts/ratelimited-api --strict
+          for env in dev prod; do
+            helm lint charts/ratelimited-api --strict -f environments/$env/values.yaml
+          done
+
+      - name: Render and validate against Kubernetes schemas
+        run: |
+          for env in default dev prod; do
+            args=""; [ "$env" != default ] && args="-f environments/$env/values.yaml"
+            echo "::group::$env"
+            helm template ratelimited-api charts/ratelimited-api $args \
+              | kubeconform -strict -summary -kubernetes-version 1.33.0 \
+                  -schema-location default -schema-location "$CRD_SCHEMAS"
+            echo "::endgroup::"
+          done
+
+      - name: Validate ArgoCD manifests
+        run: |
+          kubeconform -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS" \
+            argocd/root.yaml argocd/apps/
+
+  e2e:
+    name: End-to-end on kind
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Create kind cluster (1 control plane + 2 workers)
+        uses: helm/kind-action@v1
+        with:
+          config: kind/cluster.yaml
+          cluster_name: platform
+
+      - name: Install metrics-server (for the HPA)
+        run: |
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+          kubectl -n kube-system patch deployment metrics-server --type=json \
+            -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+
+      - name: Run end-to-end checks
+        run: bash scripts/e2e.sh
+
+      - name: Cluster state
+        if: always()
+        run: |
+          kubectl get nodes -o wide
+          kubectl -n links-e2e get all,hpa,pdb,networkpolicy -o wide
+          kubectl -n links-e2e get pods -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n links-e2e describe pods
+          kubectl -n links-e2e logs -l app.kubernetes.io/part-of=ratelimited-api --all-containers --tail=100 --prefix
+          kubectl get events -A --sort-by=.lastTimestamp | tail -50
