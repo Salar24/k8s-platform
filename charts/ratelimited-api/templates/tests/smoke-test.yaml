@@ -1,0 +1,39 @@
+{{- $fullname := include "rla.fullname" . -}}
+# `helm test`: create a link through the Service, follow it, and check the
+# rate-limit headers are present.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ $fullname }}-smoke-test
+  labels:
+    {{- include "rla.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: smoke
+      image: curlimages/curl:8.11.1
+      securityContext:
+        {{- include "rla.containerSecurity" . | nindent 8 }}
+      command: ["/bin/sh", "-ec"]
+      args:
+        - |
+          base=http://{{ $fullname }}:{{ .Values.service.port }}
+          code="smoke-$(date +%s)"
+          curl -fsS -X POST "$base/api/v1/links" \
+            -H 'Content-Type: application/json' \
+            -d "{\"url\":\"https://example.com\",\"code\":\"$code\"}"
+          echo
+          status=$(curl -s -o /dev/null -w '%{http_code}' "$base/$code")
+          [ "$status" = 302 ] || { echo "redirect returned $status"; exit 1; }
+          curl -sI "$base/api/v1/links/$code" | grep -qi '^x-ratelimit-limit:' \
+            || { echo "missing X-RateLimit-Limit header"; exit 1; }
+          echo "smoke test passed"

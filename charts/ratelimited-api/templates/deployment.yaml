@@ -1,0 +1,120 @@
+{{- $fullname := include "rla.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "rla.labels" . | nindent 4 }}
+    {{- include "rla.selector" (dict "ctx" . "component" "api") | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "rla.selector" (dict "ctx" . "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rla.labels" . | nindent 8 }}
+        {{- include "rla.selector" (dict "ctx" . "component" "api") | nindent 8 }}
+      annotations:
+        {{- if .Values.monitoring.podAnnotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "rla.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread replicas across nodes so one node failure can't take them all.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "rla.selector" (dict "ctx" . "component" "api") | nindent 14 }}
+      containers:
+        - name: api
+          image: {{ include "rla.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ADDR
+              value: ":8080"
+            - name: BASE_URL
+              value: {{ .Values.config.baseURL | quote }}
+            - name: RATE_LIMIT_RPS
+              value: {{ .Values.config.rateLimitRPS | quote }}
+            - name: RATE_LIMIT_BURST
+              value: {{ .Values.config.rateLimitBurst | quote }}
+            - name: RATE_LIMIT_FAIL_OPEN
+              value: {{ .Values.config.rateLimitFailOpen | quote }}
+            - name: TRUST_PROXY
+              value: {{ .Values.config.trustProxy | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: SHUTDOWN_TIMEOUT
+              value: {{ .Values.config.shutdownTimeout | quote }}
+            {{- with include "rla.redisURL" . }}
+            - name: REDIS_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with include "rla.databaseSecret" . }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: DATABASE_URL
+            {{- end }}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            failureThreshold: 2
+          # Give load balancers time to stop routing before shutdown begins.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "rla.containerSecurity" . | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

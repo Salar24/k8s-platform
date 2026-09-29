@@ -1,0 +1,39 @@
+{{- $fullname := include "rla.fullname" . -}}
+{{- with .Values.monitoring.serviceMonitor }}
+{{- if .enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "rla.labels" $ | nindent 4 }}
+    {{- with .labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "rla.selector" (dict "ctx" $ "component" "api") | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .interval }}
+---
+{{- end }}
+{{- end }}
+{{- with .Values.monitoring.grafanaDashboard }}
+{{- if .enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-dashboard
+  labels:
+    {{- include "rla.labels" $ | nindent 4 }}
+    {{- with .labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  ratelimited-api.json: |-
+    {{- $.Files.Get "files/ratelimited-api.json" | nindent 4 }}
+{{- end }}
+{{- end }}

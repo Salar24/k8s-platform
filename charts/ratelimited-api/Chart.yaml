@@ -1,0 +1,16 @@
+apiVersion: v2
+name: ratelimited-api
+description: >-
+  Go URL-shortening API with a distributed Redis token-bucket rate limiter.
+  Deploys the API with optional in-cluster Redis and Postgres.
+type: application
+version: 0.1.0
+appVersion: "0e7df82c450bb9eb59a77d555b82d5a082f59abe"
+home: https://github.com/Salar24/ratelimited-api
+sources:
+  - https://github.com/Salar24/ratelimited-api
+  - https://github.com/Salar24/k8s-platform
+maintainers:
+  - name: Raja Salar Abbas
+    url: https://github.com/Salar24
+keywords: [go, rate-limiting, redis, postgres]

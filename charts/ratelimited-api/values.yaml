@@ -1,0 +1,112 @@
+# -- API image. Tags are pinned to the source commit SHA for reproducible
+# GitOps deploys; defaults to .Chart.AppVersion when tag is empty.
+image:
+  repository: ghcr.io/salar24/ratelimited-api
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+config:
+  baseURL: http://localhost:8080
+  rateLimitRPS: 5
+  rateLimitBurst: 10
+  # Serve traffic if Redis is unreachable (true) or return 503 (false).
+  rateLimitFailOpen: true
+  # Take the client IP from X-Forwarded-For. Enable only behind an ingress.
+  trustProxy: false
+  logLevel: info
+  shutdownTimeout: 15s
+
+# -- Connection strings for externally managed Redis / Postgres (e.g.
+# ElastiCache / RDS). Used when the in-cluster redis/postgres are disabled.
+external:
+  redisURL: ""
+  # Name of an existing Secret with a DATABASE_URL key.
+  databaseSecret: ""
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: traefik
+  host: links.example.com
+  tls: false
+
+networkPolicy:
+  enabled: true
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+monitoring:
+  # Adds prometheus.io/* scrape annotations to pods.
+  podAnnotations: true
+  # Requires the Prometheus Operator (kube-prometheus-stack) CRDs.
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    labels:
+      release: kube-prometheus-stack
+  # ConfigMap picked up by the Grafana dashboard sidecar.
+  grafanaDashboard:
+    enabled: false
+    labels:
+      grafana_dashboard: "1"
+
+# -- In-cluster Redis for dev/test. Use a managed Redis in production.
+redis:
+  enabled: true
+  image: redis:7-alpine
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+# -- In-cluster Postgres for dev/test. Use a managed database in production.
+postgres:
+  enabled: true
+  image: postgres:17-alpine
+  database: links
+  username: links
+  # Generated (and preserved across `helm upgrade`) when empty. ArgoCD renders
+  # without cluster access, so GitOps setups should set existingSecret
+  # (e.g. from Sealed Secrets / External Secrets) or an explicit password.
+  password: ""
+  # Existing Secret with POSTGRES_PASSWORD and DATABASE_URL keys.
+  existingSecret: ""
+  storage: 1Gi
+  storageClassName: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi

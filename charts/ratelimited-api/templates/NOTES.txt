@@ -1,0 +1,15 @@
+{{ include "rla.fullname" . }} is deployed (image {{ include "rla.image" . }}).
+
+Try it:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "rla.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -X POST localhost:8080/api/v1/links -d '{"url":"https://go.dev","code":"golang"}'
+  curl -i localhost:8080/golang
+
+Rate limit: burst {{ .Values.config.rateLimitBurst }}, refill {{ .Values.config.rateLimitRPS }}/s per client IP
+{{- if .Values.redis.enabled }}, shared across replicas via in-cluster Redis.{{ else if .Values.external.redisURL }}, shared across replicas via external Redis.{{ else }}.
+WARNING: no Redis configured; each replica enforces its own limit.{{ end }}
+
+Run the smoke test:
+
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}

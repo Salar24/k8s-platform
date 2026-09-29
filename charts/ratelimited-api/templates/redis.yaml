@@ -1,0 +1,73 @@
+{{- if .Values.redis.enabled -}}
+{{- $fullname := include "rla.fullname" . -}}
+{{- $sel := dict "ctx" . "component" "redis" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-redis
+  labels:
+    {{- include "rla.labels" . | nindent 4 }}
+    {{- include "rla.selector" $sel | nindent 4 }}
+spec:
+  replicas: 1
+  # Rate-limit buckets are ephemeral; no persistence needed.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "rla.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rla.labels" . | nindent 8 }}
+        {{- include "rla.selector" $sel | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          args: ["--save", "", "--appendonly", "no"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          securityContext:
+            {{- include "rla.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-redis
+  labels:
+    {{- include "rla.labels" . | nindent 4 }}
+    {{- include "rla.selector" $sel | nindent 4 }}
+spec:
+  selector:
+    {{- include "rla.selector" $sel | nindent 4 }}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+{{- end }}

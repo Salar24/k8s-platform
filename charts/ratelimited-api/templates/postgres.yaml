@@ -1,0 +1,126 @@
+{{- if .Values.postgres.enabled -}}
+{{- $fullname := include "rla.fullname" . -}}
+{{- $sel := dict "ctx" . "component" "postgres" -}}
+{{- $secretName := default (printf "%s-postgres" $fullname) .Values.postgres.existingSecret -}}
+{{- /* Reuse the existing password on upgrade so it isn't regenerated. */ -}}
+{{- $password := .Values.postgres.password -}}
+{{- if not $password -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName -}}
+{{- if $existing -}}
+{{- $password = index $existing.data "POSTGRES_PASSWORD" | b64dec -}}
+{{- else -}}
+{{- $password = randAlphaNum 24 -}}
+{{- end -}}
+{{- end -}}
+{{- if not .Values.postgres.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "rla.labels" . | nindent 4 }}
+    {{- include "rla.selector" $sel | nindent 4 }}
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: {{ $password | quote }}
+  DATABASE_URL: {{ printf "postgres://%s:%s@%s-postgres:5432/%s?sslmode=disable" .Values.postgres.username $password $fullname .Values.postgres.database | quote }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-postgres
+  labels:
+    {{- include "rla.labels" . | nindent 4 }}
+    {{- include "rla.selector" $sel | nindent 4 }}
+spec:
+  serviceName: {{ $fullname }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "rla.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rla.labels" . | nindent 8 }}
+        {{- include "rla.selector" $sel | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70 # postgres user in the alpine image
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: POSTGRES_PASSWORD
+            # Subdirectory avoids initdb failing on a volume's lost+found.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgres.username | quote }}, "-d", {{ .Values.postgres.database | quote }}]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgres.username | quote }}]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          securityContext:
+            {{- include "rla.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.postgres.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-postgres
+  labels:
+    {{- include "rla.labels" . | nindent 4 }}
+    {{- include "rla.selector" $sel | nindent 4 }}
+spec:
+  selector:
+    {{- include "rla.selector" $sel | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+{{- end }}
