@@ -1,0 +1,74 @@
+# Cluster add-ons the API depends on: ingress and monitoring.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: platform
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: 41.6.0
+    helm:
+      valuesObject:
+        ingressClass:
+          enabled: true
+          isDefaultClass: true
+        metrics:
+          prometheus:
+            serviceMonitor:
+              enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServiceMonitor CRD arrives with kube-prometheus-stack in the same wave.
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff: { duration: 10s, factor: 2 }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: platform
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 91.8.2
+    helm:
+      valuesObject:
+        prometheus:
+          prometheusSpec:
+            # Pick up ServiceMonitors from every namespace, not only this release.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            retention: 7d
+        grafana:
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              searchNamespace: ALL
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true # CRDs exceed the client-side annotation limit

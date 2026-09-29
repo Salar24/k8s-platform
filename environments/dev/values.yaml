@@ -1,0 +1,35 @@
+# Dev: everything in-cluster, small footprint, exposed through Traefik.
+image:
+  tag: 0e7df82c450bb9eb59a77d555b82d5a082f59abe
+
+config:
+  baseURL: http://links.127.0.0.1.nip.io
+  rateLimitRPS: 5
+  rateLimitBurst: 10
+  trustProxy: true # behind Traefik
+  logLevel: debug
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+
+ingress:
+  enabled: true
+  className: traefik
+  host: links.127.0.0.1.nip.io
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+  grafanaDashboard:
+    enabled: true
+
+redis:
+  enabled: true
+
+postgres:
+  enabled: true
+  # Dev-only credential for a database reachable solely from the API pods
+  # (see NetworkPolicy). Production uses a managed DB via External Secrets.
+  password: dev-only-password

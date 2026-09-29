@@ -1,0 +1,53 @@
+# Prod: stateless API pods only. Redis and Postgres are managed services
+# (e.g. ElastiCache and RDS); credentials come from an External Secrets-
+# managed Secret, never from Git.
+image:
+  tag: 0e7df82c450bb9eb59a77d555b82d5a082f59abe
+
+config:
+  baseURL: https://links.example.com
+  rateLimitRPS: 10
+  rateLimitBurst: 20
+  rateLimitFailOpen: true # availability over strictness if Redis blips
+  trustProxy: true
+  logLevel: info
+  shutdownTimeout: 25s
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 65
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+ingress:
+  enabled: true
+  className: traefik
+  host: links.example.com
+  tls: true
+
+external:
+  redisURL: rediss://ratelimit.example.cache.amazonaws.com:6379/0
+  databaseSecret: ratelimited-api-db # synced by External Secrets Operator
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+  grafanaDashboard:
+    enabled: true
+
+redis:
+  enabled: false
+
+postgres:
+  enabled: false

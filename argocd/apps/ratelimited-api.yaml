@@ -1,0 +1,73 @@
+# Dev auto-syncs every commit; prod syncs only when a human approves it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ratelimited-api-dev
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Salar24/k8s-platform.git
+    targetRevision: main
+    path: charts/ratelimited-api
+    helm:
+      releaseName: ratelimited-api
+      valueFiles:
+        - ../../environments/dev/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: links-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff: { duration: 10s, factor: 2 }
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+  # The HPA owns the replica count.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers: [/spec/replicas]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ratelimited-api-prod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Salar24/k8s-platform.git
+    targetRevision: main
+    path: charts/ratelimited-api
+    helm:
+      releaseName: ratelimited-api
+      valueFiles:
+        - ../../environments/prod/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: links-prod
+  syncPolicy:
+    # No `automated`: prod changes are reviewed in the ArgoCD diff first.
+    syncOptions:
+      - CreateNamespace=true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers: [/spec/replicas]
