@@ -9,6 +9,10 @@ config:
   trustProxy: true # behind Traefik
   logLevel: debug
 
+# Hard requirement: never place two API replicas on the same node.
+topologySpread:
+  whenUnsatisfiable: DoNotSchedule
+
 autoscaling:
   enabled: true
   minReplicas: 2

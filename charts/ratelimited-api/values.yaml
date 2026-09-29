@@ -38,6 +38,12 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 
+# Spread API replicas across nodes. ScheduleAnyway is a soft preference that
+# works on single-node clusters; DoNotSchedule guarantees the spread.
+topologySpread:
+  enabled: true
+  whenUnsatisfiable: ScheduleAnyway
+
 podDisruptionBudget:
   enabled: true
   minAvailable: 1

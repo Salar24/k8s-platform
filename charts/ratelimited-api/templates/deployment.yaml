@@ -43,14 +43,24 @@ spec:
         runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      {{- with .Values.topologySpread }}
+      {{- if .enabled }}
       # Spread replicas across nodes so one node failure can't take them all.
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: {{ .whenUnsatisfiable }}
+          # Ignore nodes the pods can't run on (e.g. tainted control planes);
+          # otherwise an empty control plane blocks scheduling on workers.
+          nodeTaintsPolicy: Honor
           labelSelector:
             matchLabels:
-              {{- include "rla.selector" (dict "ctx" . "component" "api") | nindent 14 }}
+              {{- include "rla.selector" (dict "ctx" $ "component" "api") | nindent 14 }}
+          # Only count pods of the current ReplicaSet, so old pods draining
+          # during a rollout don't skew placement of new ones.
+          matchLabelKeys: [pod-template-hash]
+      {{- end }}
+      {{- end }}
       containers:
         - name: api
           image: {{ include "rla.image" . }}

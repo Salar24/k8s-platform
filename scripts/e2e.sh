@@ -7,6 +7,7 @@
 #   3. Both replicas actually receive traffic.
 #   4. NetworkPolicy blocks non-API pods from reaching Redis.
 #   5. A rolling restart under load drops zero requests.
+#   6. After the rollout, API replicas still run on different nodes.
 set -euo pipefail
 
 NS=${NS:-links-e2e}
@@ -98,5 +99,13 @@ echo "ok=$ok failed=$bad"
 [ "$ok" -gt 0 ] || fail "no successful requests during rollout"
 [ "$bad" -eq 0 ] || fail "$bad of $((ok + bad)) requests failed during rolling restart"
 pass "rolling restart under load: $ok requests, 0 failed"
+
+step "Replicas are spread across nodes"
+kubectl -n "$NS" get pods -l app.kubernetes.io/component=api   -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName
+pods=$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=api --field-selector=status.phase=Running -o name | wc -l)
+nodes=$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=api --field-selector=status.phase=Running   -o jsonpath='{range .items[*]}{.spec.nodeName}{"
+"}{end}' | sort -u | wc -l)
+[ "$pods" -eq "$nodes" ] || fail "$pods API pods share $nodes node(s)"
+pass "$pods API replicas on $nodes distinct nodes"
 
 echo -e "\n\033[1;32mAll end-to-end checks passed.\033[0m"

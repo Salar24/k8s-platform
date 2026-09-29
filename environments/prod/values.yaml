@@ -20,6 +20,10 @@ resources:
   limits:
     memory: 256Mi
 
+# Hard requirement: never place two API replicas on the same node.
+topologySpread:
+  whenUnsatisfiable: DoNotSchedule
+
 autoscaling:
   enabled: true
   minReplicas: 3
