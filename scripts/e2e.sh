@@ -101,10 +101,17 @@ echo "ok=$ok failed=$bad"
 pass "rolling restart under load: $ok requests, 0 failed"
 
 step "Replicas are spread across nodes"
-kubectl -n "$NS" get pods -l app.kubernetes.io/component=api   -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName
-pods=$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=api --field-selector=status.phase=Running -o name | wc -l)
-nodes=$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=api --field-selector=status.phase=Running   -o jsonpath='{range .items[*]}{.spec.nodeName}{"
-"}{end}' | sort -u | wc -l)
+# Wait for pods from the old ReplicaSet to finish terminating.
+want=$(kubectl -n "$NS" get "deploy/$REL" -o jsonpath='{.status.replicas}')
+for _ in $(seq 1 60); do
+  [ "$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=api --no-headers | wc -l)" -eq "$want" ] && break
+  sleep 1
+done
+kubectl -n "$NS" get pods -l app.kubernetes.io/component=api \
+  -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName
+pods=$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=api -o name | wc -l)
+nodes=$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=api \
+  -o custom-columns=NODE:.spec.nodeName --no-headers | sort -u | wc -l)
 [ "$pods" -eq "$nodes" ] || fail "$pods API pods share $nodes node(s)"
 pass "$pods API replicas on $nodes distinct nodes"
 
