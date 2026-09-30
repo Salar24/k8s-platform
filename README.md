@@ -7,7 +7,7 @@
 
 The Kubernetes deployment for [**ratelimited-api**](https://github.com/Salar24/ratelimited-api): a production-style Helm chart, GitOps with ArgoCD across dev and prod, cluster add-ons (Traefik, Prometheus and Grafana), and an **end-to-end suite that tests the running system on a real multi-node cluster** in CI.
 
-The app code and its deployment config live in separate repos, as is common in GitOps: the app repo publishes an image, and this repo decides which image runs where.
+The app code and its deployment config live in separate repos, as is common in GitOps: the app repo publishes an image, and this repo decides which image runs where. The AWS infrastructure behind the **prod** environment (EKS, RDS, ElastiCache) is in [**terraform-aws-platform**](https://github.com/Salar24/terraform-aws-platform).
 
 ## What CI proves on every commit
 
